@@ -1,0 +1,21 @@
+---
+# Reuse validation logic.
+- include_tasks: "{{ role_path }}/../validate/tasks/validate_tails_environment.yml"
+
+- include_tasks: copy_dotfiles.yml
+
+- include_tasks: configure_torrc_additions.yml
+
+- include_tasks: create_desktop_shortcuts.yml
+
+- include_tasks: install_shell_extension.yml
+
+- include_tasks: configure_network_hook.yml
+
+- name: Check that we are on an admin workstation
+  stat:
+    path: "{{ config_path }}/tor_v3_keys.json"
+  register: admin_check_result
+
+- include_tasks: create_ssh_aliases.yml
+  when: admin_check_result.stat.exists

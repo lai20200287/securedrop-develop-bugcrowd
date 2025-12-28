@@ -1,0 +1,6 @@
+cffi>=1.16.0
+markupsafe>=3.0
+prompt_toolkit==2.0.9
+pyyaml>=6.0.1
+setuptools>=78.1.1
+six>=1.16.0

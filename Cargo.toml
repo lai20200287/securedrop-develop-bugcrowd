@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "redwood",
+]
+
+resolver = "2"

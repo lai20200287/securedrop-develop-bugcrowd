@@ -1,0 +1,24 @@
+---
+name: Publish Demo Landing Page
+
+on:
+  push:
+    branches: ["develop"]
+    paths:
+    - devops/demo/landing-page/**
+
+jobs:
+  build:
+    name: Build Landing Page
+    uses: freedomofpress/actionslib/.github/workflows/oci-build.yaml@main
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    with:
+      context: "."
+      containerfile: devops/demo/landing-page/Dockerfile
+      registry: ghcr.io/freedomofpress/securedrop-demo-landing-page
+      add-branch-tags: true
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}

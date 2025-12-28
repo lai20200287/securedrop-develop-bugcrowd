@@ -1,0 +1,19 @@
+---
+- name: Configure DNS server IP.
+  template:
+    src: dns_base
+    dest: "{{ resolvconf_target_filepath }}"
+  tags:
+    - dns
+    - hardening
+
+- name: Uninstall systemd-resolved
+  apt:
+    name:
+      - systemd-resolved
+    state: absent
+    purge: yes
+  tags:
+    - apt
+    - dns
+    - hardening

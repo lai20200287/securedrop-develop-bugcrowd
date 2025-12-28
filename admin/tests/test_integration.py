@@ -1,0 +1,482 @@
+import os
+import re
+import shutil
+from pathlib import Path
+
+import pexpect
+
+CURRENT_DIR = os.path.dirname(__file__)
+CONFIG_DIR = f"{str(Path.home())}/.config/securedrop-admin"
+ANSIBLE_BASE = "/usr/share/securedrop-admin/ansible-base/"
+# Regex to strip ANSI escape chars
+# https://stackoverflow.com/questions/14693701/how-can-i-remove-the-ansi-escape-sequences-from-a-string-in-python
+ANSI_ESCAPE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+SECUREDROP_ADMIN_CMD = "/usr/bin/securedrop-admin"
+
+OUTPUT1 = f"""app_hostname: app
+app_ip: 10.20.2.2
+config_path: {str(Path.home())}/.config/securedrop-admin
+daily_reboot_time: 5
+dns_server:
+- 8.8.8.8
+- 8.8.4.4
+enable_ssh_over_tor: true
+journalist_alert_email: ''
+journalist_alert_gpg_public_key: ''
+journalist_gpg_fpr: ''
+monitor_hostname: mon
+monitor_ip: 10.20.3.2
+ossec_alert_email: test@gmail.com
+ossec_alert_gpg_public_key: sd_admin_test.pub
+ossec_gpg_fpr: 1F544B31C845D698EB31F2FF364F1162D32E7E58
+sasl_domain: gmail.com
+sasl_password: testpassword
+sasl_username: testuser
+securedrop_app_gpg_fingerprint: 1F544B31C845D698EB31F2FF364F1162D32E7E58
+securedrop_app_gpg_public_key: sd_admin_test.pub
+securedrop_app_https_certificate_cert_src: ''
+securedrop_app_https_certificate_chain_src: ''
+securedrop_app_https_certificate_key_src: ''
+securedrop_app_https_on_source_interface: false
+securedrop_app_pow_on_source_interface: true
+securedrop_supported_locales:
+- de_DE
+- es_ES
+smtp_relay: smtp.gmail.com
+smtp_relay_port: 587
+ssh_users: sdadmin
+"""
+
+JOURNALIST_ALERT_OUTPUT = f"""app_hostname: app
+app_ip: 10.20.2.2
+config_path: {str(Path.home())}/.config/securedrop-admin
+daily_reboot_time: 5
+dns_server:
+- 8.8.8.8
+- 8.8.4.4
+enable_ssh_over_tor: true
+journalist_alert_email: test@gmail.com
+journalist_alert_gpg_public_key: sd_admin_test.pub
+journalist_gpg_fpr: 1F544B31C845D698EB31F2FF364F1162D32E7E58
+monitor_hostname: mon
+monitor_ip: 10.20.3.2
+ossec_alert_email: test@gmail.com
+ossec_alert_gpg_public_key: sd_admin_test.pub
+ossec_gpg_fpr: 1F544B31C845D698EB31F2FF364F1162D32E7E58
+sasl_domain: gmail.com
+sasl_password: testpassword
+sasl_username: testuser
+securedrop_app_gpg_fingerprint: 1F544B31C845D698EB31F2FF364F1162D32E7E58
+securedrop_app_gpg_public_key: sd_admin_test.pub
+securedrop_app_https_certificate_cert_src: ''
+securedrop_app_https_certificate_chain_src: ''
+securedrop_app_https_certificate_key_src: ''
+securedrop_app_https_on_source_interface: false
+securedrop_app_pow_on_source_interface: true
+securedrop_supported_locales:
+- de_DE
+- es_ES
+smtp_relay: smtp.gmail.com
+smtp_relay_port: 587
+ssh_users: sdadmin
+"""
+
+HTTPS_OUTPUT_NO_POW = f"""app_hostname: app
+app_ip: 10.20.2.2
+config_path: {str(Path.home())}/.config/securedrop-admin
+daily_reboot_time: 5
+dns_server:
+- 8.8.8.8
+- 8.8.4.4
+enable_ssh_over_tor: true
+journalist_alert_email: test@gmail.com
+journalist_alert_gpg_public_key: sd_admin_test.pub
+journalist_gpg_fpr: 1F544B31C845D698EB31F2FF364F1162D32E7E58
+monitor_hostname: mon
+monitor_ip: 10.20.3.2
+ossec_alert_email: test@gmail.com
+ossec_alert_gpg_public_key: sd_admin_test.pub
+ossec_gpg_fpr: 1F544B31C845D698EB31F2FF364F1162D32E7E58
+sasl_domain: gmail.com
+sasl_password: testpassword
+sasl_username: testuser
+securedrop_app_gpg_fingerprint: 1F544B31C845D698EB31F2FF364F1162D32E7E58
+securedrop_app_gpg_public_key: sd_admin_test.pub
+securedrop_app_https_certificate_cert_src: sd.crt
+securedrop_app_https_certificate_chain_src: ca.crt
+securedrop_app_https_certificate_key_src: key.asc
+securedrop_app_https_on_source_interface: true
+securedrop_app_pow_on_source_interface: false
+securedrop_supported_locales:
+- de_DE
+- es_ES
+smtp_relay: smtp.gmail.com
+smtp_relay_port: 587
+ssh_users: sdadmin
+"""
+
+
+def setup_function(function):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    for name in ["sd_admin_test.pub", "ca.crt", "sd.crt", "key.asc"]:
+        shutil.copy(os.path.join(CURRENT_DIR, "files", name), CONFIG_DIR)
+
+
+def teardown_function(function):
+    shutil.rmtree(CONFIG_DIR)
+
+
+def verify_username_prompt(child):
+    child.expect(b"Username for SSH access to the servers:")
+
+
+def verify_reboot_prompt(child):
+    child.expect(rb"Daily reboot time of the server \(24\-hour clock\):", timeout=2)
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "4"
+
+
+def verify_ipv4_appserver_prompt(child):
+    child.expect(rb"Local IPv4 address for the Application Server\:", timeout=2)
+    # Expected default
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "10.20.2.2"
+
+
+def verify_ipv4_monserver_prompt(child):
+    child.expect(rb"Local IPv4 address for the Monitor Server\:", timeout=2)
+    # Expected default
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "10.20.3.2"
+
+
+def verify_hostname_app_prompt(child):
+    child.expect(rb"Hostname for Application Server\:", timeout=2)
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "app"
+
+
+def verify_hostname_mon_prompt(child):
+    child.expect(rb"Hostname for Monitor Server\:", timeout=2)
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "mon"
+
+
+def verify_dns_prompt(child):
+    child.expect(rb"DNS server\(s\):", timeout=2)
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "8.8.8.8 8.8.4.4"
+
+
+def verify_app_gpg_key_prompt(child):
+    child.expect(
+        rb"Local filepath to public key for SecureDrop Application GPG public key\:", timeout=2
+    )
+
+
+def verify_tor_pow_prompt(child):
+    # We don't need child.expect()'s regex matching, but the prompt is too long
+    # to match on the whole thing.
+    child.expect_exact("Enable Tor's proof-of-work defense", timeout=2)
+
+
+def verify_https_prompt(child):
+    # We don't need child.expect()'s regex matching.
+    child.expect_exact(
+        "Enable HTTPS for the Source Interface (requires EV certificate)?:", timeout=2
+    )
+
+
+def verify_https_cert_prompt(child):
+    child.expect(rb"Local filepath to HTTPS certificate\:", timeout=2)
+
+
+def verify_https_cert_key_prompt(child):
+    child.expect(rb"Local filepath to HTTPS certificate key\:", timeout=2)
+
+
+def verify_https_cert_chain_file_prompt(child):
+    child.expect(rb"Local filepath to HTTPS certificate chain file\:", timeout=2)
+
+
+def verify_app_gpg_fingerprint_prompt(child):
+    child.expect(rb"Full fingerprint for the SecureDrop Application GPG Key\:", timeout=2)
+
+
+def verify_ossec_gpg_key_prompt(child):
+    child.expect(rb"Local filepath to OSSEC alerts GPG public key\:", timeout=2)
+
+
+def verify_ossec_gpg_fingerprint_prompt(child):
+    child.expect(rb"Full fingerprint for the OSSEC alerts GPG public key\:", timeout=2)
+
+
+def verify_admin_email_prompt(child):
+    child.expect(rb"Admin email address for receiving OSSEC alerts\:", timeout=2)
+
+
+def verify_journalist_gpg_key_prompt(child):
+    child.expect(rb"Local filepath to journalist alerts GPG public key \(optional\)\:", timeout=2)
+
+
+def verify_journalist_fingerprint_prompt(child):
+    child.expect(
+        rb"Full fingerprint for the journalist alerts GPG public key \(optional\)\:", timeout=2
+    )
+
+
+def verify_journalist_email_prompt(child):
+    child.expect(rb"Email address for receiving journalist alerts \(optional\)\:", timeout=2)
+
+
+def verify_smtp_relay_prompt(child):
+    child.expect(rb"SMTP relay for sending OSSEC alerts\:", timeout=2)
+    # Expected default
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "smtp.gmail.com"
+
+
+def verify_smtp_port_prompt(child):
+    child.expect(rb"SMTP port for sending OSSEC alerts\:", timeout=2)
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "587"
+
+
+def verify_sasl_domain_prompt(child):
+    child.expect(rb"SASL domain for sending OSSEC alerts\:", timeout=2)
+    # Expected default
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "gmail.com"
+
+
+def verify_sasl_username_prompt(child):
+    child.expect(rb"SASL username for sending OSSEC alerts\:", timeout=2)
+
+
+def verify_sasl_password_prompt(child):
+    child.expect(rb"SASL password for sending OSSEC alerts\:", timeout=2)
+
+
+def verify_ssh_over_lan_prompt(child):
+    child.expect(rb"will be available over LAN only\:", timeout=2)
+    assert ANSI_ESCAPE.sub("", child.buffer.decode("utf-8")).strip() == "yes"
+
+
+def verify_locales_prompt(child):
+    child.expect(rb"Space separated list of additional locales to support")
+
+
+def verify_install_has_valid_config():
+    """
+    Checks that securedrop-admin install validates the configuration.
+    """
+    child = pexpect.spawn(f"{SECUREDROP_ADMIN_CMD} --force install")
+    child.expect(b"SUDO password:", timeout=5)
+    child.close()
+
+
+def test_install_with_no_config():
+    """
+    Checks that securedrop-admin install complains about a missing config file.
+    """
+    child = pexpect.spawn(f"{SECUREDROP_ADMIN_CMD} --force install")
+    child.expect(b'ERROR: Please run "securedrop-admin sdconfig" first.', timeout=5)
+    child.expect(pexpect.EOF, timeout=5)
+    child.close()
+    assert child.exitstatus == 1
+    assert child.signalstatus is None
+
+
+def test_sdconfig_on_first_run():
+    child = pexpect.spawn(f"{SECUREDROP_ADMIN_CMD} --force sdconfig")
+    verify_username_prompt(child)
+    child.sendline("")
+    verify_reboot_prompt(child)
+    child.sendline("\b5")  # backspace and put 5
+    verify_ipv4_appserver_prompt(child)
+    child.sendline("")
+    verify_ipv4_monserver_prompt(child)
+    child.sendline("")
+    verify_hostname_app_prompt(child)
+    child.sendline("")
+    verify_hostname_mon_prompt(child)
+    child.sendline("")
+    verify_dns_prompt(child)
+    child.sendline("")
+    verify_app_gpg_key_prompt(child)
+    child.sendline("\b" * 14 + "sd_admin_test.pub")
+    verify_tor_pow_prompt(child)
+    # Default answer is yes
+    child.sendline("")
+    verify_https_prompt(child)
+    # Default answer is no
+    child.sendline("")
+    verify_app_gpg_fingerprint_prompt(child)
+    child.sendline("1F544B31C845D698EB31F2FF364F1162D32E7E58")
+    verify_ossec_gpg_key_prompt(child)
+    child.sendline("\b" * 9 + "sd_admin_test.pub")
+    verify_ossec_gpg_fingerprint_prompt(child)
+    child.sendline("1F544B31C845D698EB31F2FF364F1162D32E7E58")
+    verify_admin_email_prompt(child)
+    child.sendline("test@gmail.com")
+    verify_journalist_gpg_key_prompt(child)
+    child.sendline("")
+    verify_smtp_relay_prompt(child)
+    child.sendline("")
+    verify_smtp_port_prompt(child)
+    child.sendline("")
+    verify_sasl_domain_prompt(child)
+    child.sendline("")
+    verify_sasl_username_prompt(child)
+    child.sendline("testuser")
+    verify_sasl_password_prompt(child)
+    child.sendline("testpassword")
+    verify_ssh_over_lan_prompt(child)
+    child.sendline("")
+    verify_locales_prompt(child)
+    child.sendline("de_DE es_ES")
+    child.sendline("\b" * 3 + "no")
+    child.sendline("\b" * 4 + "yes")
+
+    child.expect(pexpect.EOF, timeout=10)  # Wait for validation to occur
+    child.close()
+    assert child.exitstatus == 0
+    assert child.signalstatus is None
+
+    with open(os.path.join(CONFIG_DIR, "site-specific")) as fobj:
+        data = fobj.read()
+    assert data == OUTPUT1
+
+    verify_install_has_valid_config()
+
+
+def test_sdconfig_enable_journalist_alerts():
+    child = pexpect.spawn(f"{SECUREDROP_ADMIN_CMD} --force sdconfig")
+    verify_username_prompt(child)
+    child.sendline("")
+    verify_reboot_prompt(child)
+    child.sendline("\b5")  # backspace and put 5
+    verify_ipv4_appserver_prompt(child)
+    child.sendline("")
+    verify_ipv4_monserver_prompt(child)
+    child.sendline("")
+    verify_hostname_app_prompt(child)
+    child.sendline("")
+    verify_hostname_mon_prompt(child)
+    child.sendline("")
+    verify_dns_prompt(child)
+    child.sendline("")
+    verify_app_gpg_key_prompt(child)
+    child.sendline("\b" * 14 + "sd_admin_test.pub")
+    verify_tor_pow_prompt(child)
+    # Default answer is yes
+    child.sendline("")
+    verify_https_prompt(child)
+    child.sendline("")
+    # Default answer is no
+    child.sendline("")
+    verify_app_gpg_fingerprint_prompt(child)
+    child.sendline("1F544B31C845D698EB31F2FF364F1162D32E7E58")
+    verify_ossec_gpg_key_prompt(child)
+    child.sendline("\b" * 9 + "sd_admin_test.pub")
+    verify_ossec_gpg_fingerprint_prompt(child)
+    child.sendline("1F544B31C845D698EB31F2FF364F1162D32E7E58")
+    verify_admin_email_prompt(child)
+    child.sendline("test@gmail.com")
+    # We will provide a key for this question
+    verify_journalist_gpg_key_prompt(child)
+    child.sendline("sd_admin_test.pub")
+    verify_journalist_fingerprint_prompt(child)
+    child.sendline("1F544B31C845D698EB31F2FF364F1162D32E7E58")
+    verify_journalist_email_prompt(child)
+    child.sendline("test@gmail.com")
+    verify_smtp_relay_prompt(child)
+    child.sendline("")
+    verify_smtp_port_prompt(child)
+    child.sendline("")
+    verify_sasl_domain_prompt(child)
+    child.sendline("")
+    verify_sasl_username_prompt(child)
+    child.sendline("testuser")
+    verify_sasl_password_prompt(child)
+    child.sendline("testpassword")
+    verify_ssh_over_lan_prompt(child)
+    child.sendline("")
+    verify_locales_prompt(child)
+    child.sendline("de_DE es_ES")
+
+    child.expect(pexpect.EOF, timeout=10)  # Wait for validation to occur
+    child.close()
+    assert child.exitstatus == 0
+    assert child.signalstatus is None
+
+    with open(os.path.join(CONFIG_DIR, "site-specific")) as fobj:
+        data = fobj.read()
+    assert data == JOURNALIST_ALERT_OUTPUT
+
+    verify_install_has_valid_config()
+
+
+def test_sdconfig_enable_https_disable_pow_on_source_interface():
+    child = pexpect.spawn(f"{SECUREDROP_ADMIN_CMD} --force sdconfig")
+    verify_username_prompt(child)
+    child.sendline("")
+    verify_reboot_prompt(child)
+    child.sendline("\b5")  # backspace and put 5
+    verify_ipv4_appserver_prompt(child)
+    child.sendline("")
+    verify_ipv4_monserver_prompt(child)
+    child.sendline("")
+    verify_hostname_app_prompt(child)
+    child.sendline("")
+    verify_hostname_mon_prompt(child)
+    child.sendline("")
+    verify_dns_prompt(child)
+    child.sendline("")
+    verify_app_gpg_key_prompt(child)
+    child.sendline("\b" * 14 + "sd_admin_test.pub")
+    verify_tor_pow_prompt(child)
+    # Default answer is yes
+    # We will press backspace thrice and type no
+    child.sendline("\b\b\bno")
+    verify_https_prompt(child)
+    # Default answer is no
+    # We will press backspace twice and type yes
+    child.sendline("\b\byes")
+    verify_https_cert_prompt(child)
+    child.sendline("sd.crt")
+    verify_https_cert_key_prompt(child)
+    child.sendline("key.asc")
+    verify_https_cert_chain_file_prompt(child)
+    child.sendline("ca.crt")
+    verify_app_gpg_fingerprint_prompt(child)
+    child.sendline("1F544B31C845D698EB31F2FF364F1162D32E7E58")
+    verify_ossec_gpg_key_prompt(child)
+    child.sendline("\b" * 9 + "sd_admin_test.pub")
+    verify_ossec_gpg_fingerprint_prompt(child)
+    child.sendline("1F544B31C845D698EB31F2FF364F1162D32E7E58")
+    verify_admin_email_prompt(child)
+    child.sendline("test@gmail.com")
+    # We will provide a key for this question
+    verify_journalist_gpg_key_prompt(child)
+    child.sendline("sd_admin_test.pub")
+    verify_journalist_fingerprint_prompt(child)
+    child.sendline("1F544B31C845D698EB31F2FF364F1162D32E7E58")
+    verify_journalist_email_prompt(child)
+    child.sendline("test@gmail.com")
+    verify_smtp_relay_prompt(child)
+    child.sendline("")
+    verify_smtp_port_prompt(child)
+    child.sendline("")
+    verify_sasl_domain_prompt(child)
+    child.sendline("")
+    verify_sasl_username_prompt(child)
+    child.sendline("testuser")
+    verify_sasl_password_prompt(child)
+    child.sendline("testpassword")
+    verify_ssh_over_lan_prompt(child)
+    child.sendline("")
+    verify_locales_prompt(child)
+    child.sendline("de_DE es_ES")
+
+    child.expect(pexpect.EOF, timeout=10)  # Wait for validation to occur
+    child.close()
+    assert child.exitstatus == 0
+    assert child.signalstatus is None
+
+    with open(os.path.join(CONFIG_DIR, "site-specific")) as fobj:
+        data = fobj.read()
+    assert data == HTTPS_OUTPUT_NO_POW
+
+    verify_install_has_valid_config()

@@ -1,0 +1,38 @@
+name: Security
+on:
+  push:
+    branches: ["develop", "release/**"]
+  pull_request:
+    types: ["opened", "synchronize"]
+  merge_group:
+  schedule:
+    - cron: '0 3 * * *'
+
+jobs:
+  rust-audit:
+    runs-on: ubuntu-latest
+    # Keep version in sync with rust-toolchain.toml
+    container: rust:1.90.0
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check Rust dependencies
+        run: |
+          make rust-audit
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          pip install semgrep
+      - name: Run static security testing on source code with semgrep
+        run: |
+          make semgrep

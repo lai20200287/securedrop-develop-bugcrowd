@@ -1,0 +1,56 @@
+#!/bin/bash
+# Minimal migration-only wrapper for securedrop-admin
+# This script is used ONLY for the one-time migration from git-based to deb-based installer
+# After migration, users will use /usr/bin/securedrop-admin from the installed package
+set -eo pipefail
+
+# Check that we're not running as root
+b=$(basename "$0")
+u=$(whoami)
+if test "$u" = "root"; then
+    echo "Please do not run \"$b\" directly as root."
+    exit 1
+fi
+
+# Get the directory this script is in
+d=$(dirname "$0")
+
+# Only support setup command for migration
+if [ "$1" = "setup" ]; then
+    # Get parent PID to pass to wrapper (so it can kill the GUI updater)
+    parent_pid=$PPID
+
+    # Show intro message about migration
+    zenity --info \
+        --title="Updating SecureDrop Workstation" \
+        --width=500 \
+        --text="With this update, we are changing how the SecureDrop admin tools are installed. You will need to type your Tails Administration password multiple times to continue with the update."
+
+    # Launch detached wrapper in terminal, passing parent PID
+    kgx -T 'SecureDrop Workstation Migration' -e "bash $d/admin/migrate-to-deb-wrapper.sh $parent_pid" &
+    disown
+
+    # Exit immediately so GUI updater doesn't timeout
+    exit 0
+
+elif [ "$1" = "tails-bootstrap" ]; then
+    # Show intro message about bootstrap
+    zenity --info \
+        --title="SecureDrop Admin Tools Bootstrap" \
+        --width=500 \
+        --text="This will install the SecureDrop admin tools on Tails.\n\nYou will need to type your Tails Administration password to continue."
+
+    # Launch detached bootstrap wrapper in terminal
+    bash "$d/admin/bootstrap-tails-wrapper.sh"
+    exit 0
+
+else
+    echo "Error: This git-based installer has been deprecated."
+    echo ""
+    echo "Available commands:"
+    echo "  ./securedrop-admin setup            - Migrate existing installation to package-based installer"
+    echo "  ./securedrop-admin tails-bootstrap  - Fresh install on Tails"
+    echo ""
+    echo "After installation, use 'securedrop-admin' (installed in /usr/bin) for all operations."
+    exit 1
+fi

@@ -1,0 +1,12 @@
+---
+- include_tasks: "{{ role_path }}/../validate/tasks/validate_qubes_environment.yml"
+
+- include_tasks: configure_tor.yml
+
+- name: Check that we are on an admin workstation
+  stat:
+    path: "{{ config_path }}/tor_v3_keys.json"
+  register: admin_check_result
+
+- include_tasks: create_ssh_aliases.yml
+  when: admin_check_result.stat.exists

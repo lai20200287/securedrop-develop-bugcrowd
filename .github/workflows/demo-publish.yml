@@ -1,0 +1,27 @@
+---
+name: Publish Demo
+
+on:
+  push:
+    branches: ["develop"]
+    tags: ["**"]  # run for all tags
+
+jobs:
+  build:
+    name: Build
+    uses: freedomofpress/actionslib/.github/workflows/oci-build.yaml@main
+    strategy:
+      matrix:
+        debian:
+        - noble
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    with:
+      context: "."
+      containerfile: securedrop/dockerfiles/${{ matrix.debian }}/python3/DemoDockerfile
+      registry: ghcr.io/freedomofpress/securedrop-demo-${{ matrix.debian }}
+      add-branch-tags: true
+    secrets:
+      registry-password: ${{ secrets.GITHUB_TOKEN }}

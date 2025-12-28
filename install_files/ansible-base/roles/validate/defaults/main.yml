@@ -1,0 +1,4 @@
+---
+# Whether to expect a persistence-enabled Tails environment, or a Debian qube. Defaults to true,
+# for prod contexts, but override capability is provided for testing.
+securedrop_validate_environment: true

@@ -1,0 +1,138 @@
+import Clutter from 'gi://Clutter';
+import GObject from 'gi://GObject';
+import GLib from 'gi://GLib';
+import St from 'gi://St';
+import Gio from 'gi://Gio';
+
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+
+import * as Gettext from 'gettext';
+import * as ExtensionUtils from 'resource:///org/gnome/shell/misc/extensionUtils.js';
+import * as Util from 'resource:///org/gnome/shell/misc/util.js';
+
+import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
+
+const GETTEXT_DOMAIN = 'messages';
+const Domain = Gettext.domain(GETTEXT_DOMAIN);
+const _ = Domain.gettext;
+
+const source_interface_address = "{{ item.0.source_interface_address }}";
+const journalist_interface_address = "{{ item.0.journalist_interface_address }}";
+const app_server_hostname = "{{ app_hostname|default('app') }}";
+const mon_server_hostname = "{{ monitor_hostname|default('mon') }}";
+
+const Indicator = GObject.registerClass(
+class Indicator extends PanelMenu.Button {
+    _init() {
+        super._init(0.0, 'SecureDrop');
+
+        // Check for SSH onion service client authentication keys -
+        // if they don't exist, this is a Journalist workstation
+        // (and therefore the admin options should remain hidden)
+        let is_admin = false;
+        try {
+            let [ok, out, err, exit] = GLib.spawn_command_line_sync('/bin/bash -c "test -f ~/.config/securedrop-admin/tor_v3_keys.json"');
+            if (exit == 0) {
+                is_admin = true;
+            }
+        } catch (e) {
+            console.log('Error checking admin status:', e);
+        }
+        
+        // Use the extension's path from the extension instance
+        const extension = Extension.lookupByURL(import.meta.url);
+        let gicon = Gio.icon_new_for_string(extension.path + "/icons/securedrop-symbolic.png");
+        let icon = new St.Icon({ gicon });
+        icon.icon_size = 18;
+        icon.set_size(18, 18);
+        
+        let label = new St.Label({
+            text: 'SecureDrop',
+            y_expand: false,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+        
+        let topBox = new St.BoxLayout({
+            style_class: 'panel-status-menu-box'
+        });
+        
+        topBox.add_child(icon);
+        topBox.add_child(label);
+        this.add_child(topBox);
+
+        let source = new PopupMenu.PopupMenuItem(_('Launch Source Interface'));
+        source.connect('activate', () => {
+            Util.spawn(['tor-browser', source_interface_address]);
+        });
+        
+        let journalist = new PopupMenu.PopupMenuItem(_('Launch Journalist Interface'));
+        journalist.connect('activate', () => {
+            Util.spawn(['tor-browser', journalist_interface_address]);
+        });
+        
+        let admin_label = new St.Label({
+            text: 'Admin Actions',
+            y_expand: true,
+            y_align: Clutter.ActorAlign.START,
+        });
+        
+        let app_server_ssh = new PopupMenu.PopupMenuItem(_('SSH into the App Server'));
+        app_server_ssh.connect('activate', () => {
+            Util.trySpawnCommandLine(`kgx -- ssh ${app_server_hostname}`);
+        });
+        
+        let mon_server_ssh = new PopupMenu.PopupMenuItem(_('SSH into the Monitor Server'));
+        mon_server_ssh.connect('activate', () => {
+            Util.trySpawnCommandLine(`kgx -- ssh ${mon_server_hostname}`);
+        });
+        
+        let keypass = new PopupMenu.PopupMenuItem(_('Open KeePassXC Password Vault'));
+        keypass.connect('activate', () => {
+            Util.trySpawnCommandLine(`keepassxc`);
+        });
+
+        let filebrowser = new PopupMenu.PopupMenuItem(_('Open File Browser'));
+        filebrowser.connect('activate', () => {
+            Util.trySpawnCommandLine(`xdg-open /home/amnesia/Persistent`);
+        });
+        
+        this.menu.addMenuItem(source);
+        this.menu.addMenuItem(journalist);
+        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        if (is_admin) {
+            this.menu.addMenuItem(app_server_ssh);
+            this.menu.addMenuItem(mon_server_ssh);
+            this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        }
+        this.menu.addMenuItem(keypass);
+        this.menu.addMenuItem(filebrowser);
+    }
+});
+
+export default class SecureDropExtension extends Extension {
+    constructor(metadata) {
+        super(metadata);
+        this._indicator = null;
+    }
+
+    enable() {
+        this._indicator = new Indicator();
+        
+        // Position is a zero-based index of where to put the extension 
+        // in the status bar. Index 3, in Tails, would be to the right
+        // of the 'Places' Menu (Overview/workspaces, Apps, Places, SD)
+        let pos = 3;
+        if ('apps-menu' in Main.panel.statusArea)
+            pos++;
+        Main.panel.addToStatusArea(this.uuid, this._indicator, pos, 'left');
+    }
+
+    disable() {
+        if (this._indicator) {
+            this._indicator.destroy();
+            this._indicator = null;
+        }
+    }
+}
